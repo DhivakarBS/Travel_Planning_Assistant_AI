@@ -1,22 +1,24 @@
 import os
 import json
 from typing import List, Dict, Any
-from openai import OpenAI
+from google import genai
+from google.genai import types
 from langgraph.graph import Graph, StateGraph
 from langgraph.prebuilt import ToolNode
 from langchain_core.messages import HumanMessage, AIMessage
 
-# Initialize OpenAI client
-# the newest OpenAI model is "gpt-5" which was released August 7, 2025.
-# do not change this unless explicitly requested by the user
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+# Initialize Gemini client
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY environment variable is required")
+
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 class TravelPlanningAgent:
-    """LangGraph-powered travel planning assistant"""
+    """LangGraph-powered travel planning assistant using Google Gemini"""
     
     def __init__(self):
-        self.client = openai_client
+        self.client = gemini_client
         self.graph = self._create_conversation_graph()
         
     def _create_conversation_graph(self):
@@ -26,13 +28,13 @@ class TravelPlanningAgent:
             """Analyze user's travel-related intent"""
             message = state.get("current_message", "")
             
-            # Use GPT-5 to classify the travel intent
-            response = self.client.chat.completions.create(
-                model="gpt-5",
-                messages=[
+            # Use Gemini to classify the travel intent
+            response = self.client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[
                     {
-                        "role": "system",
-                        "content": """You are a travel intent classifier. Analyze the user's message and classify it into one of these categories:
+                        "role": "user",
+                        "parts": [{"text": f"""You are a travel intent classifier. Analyze the user's message and classify it into one of these categories:
                         - destination_inquiry: asking about places to visit
                         - itinerary_planning: planning day-by-day activities
                         - budget_planning: asking about costs and budgets
@@ -44,16 +46,20 @@ class TravelPlanningAgent:
                         - greeting: initial greeting or introduction
                         - other: non-travel related
                         
-                        Respond with JSON: {"intent": "category", "confidence": 0.95, "key_entities": ["entity1", "entity2"]}"""
-                    },
-                    {"role": "user", "content": message}
+                        User message: "{message}"
+                        
+                        Respond with JSON: {{"intent": "category", "confidence": 0.95, "key_entities": ["entity1", "entity2"]}}"""}]
+                    }
                 ],
-                response_format={"type": "json_object"},
-                max_completion_tokens=200
+                config=types.GenerateContentConfig(
+                    temperature=0.3,
+                    max_output_tokens=200,
+                    response_mime_type="application/json"
+                )
             )
             
             try:
-                intent_data = json.loads(response.choices[0].message.content)
+                intent_data = json.loads(response.text)
                 state["intent"] = intent_data.get("intent", "general_travel")
                 state["entities"] = intent_data.get("key_entities", [])
                 state["confidence"] = intent_data.get("confidence", 0.5)
@@ -92,27 +98,37 @@ class TravelPlanningAgent:
             }
             
             system_prompt = system_prompts.get(intent, system_prompts["general_travel"])
+            system_instruction = f"{system_prompt}\n\nAlways be enthusiastic, helpful, and provide actionable advice. If you need more information to give better recommendations, ask specific follow-up questions."
             
-            # Build conversation context
-            messages = [
-                {"role": "system", "content": f"{system_prompt}\n\nAlways be enthusiastic, helpful, and provide actionable advice. If you need more information to give better recommendations, ask specific follow-up questions."}
-            ]
+            # Build conversation with history
+            contents = []
             
             # Add conversation history
             for msg in history[-6:]:  # Keep last 6 messages for context
-                messages.append(msg)
+                role = "user" if msg.get("role") == "user" else "model"
+                contents.append({
+                    "role": role,
+                    "parts": [{"text": msg.get("content", "")}]
+                })
             
             # Add current message
-            messages.append({"role": "user", "content": message})
+            contents.append({
+                "role": "user",
+                "parts": [{"text": message}]
+            })
             
             # Generate response
-            response = self.client.chat.completions.create(
-                model="gpt-5",
-                messages=messages,
-                max_completion_tokens=800
+            response = self.client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=0.7,
+                    max_output_tokens=800
+                )
             )
             
-            state["response"] = response.choices[0].message.content
+            state["response"] = response.text
             return state
         
         def should_ask_followup(state: Dict[str, Any]) -> str:
