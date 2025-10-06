@@ -150,7 +150,7 @@ def main():
     st.divider()
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("*Powered by OpenAI GPT-5 and LangGraph*")
+        st.markdown("*Powered by Google Gemini 2.0 and LangGraph*")
 
 if __name__ == "__main__":
     main()
