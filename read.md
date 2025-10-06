@@ -4,6 +4,7 @@
 
 This is a Travel Planning Assistant application that uses AI to help users plan their trips. The system consists of a Streamlit frontend for user interaction and a FastAPI backend that processes travel-related queries using Google's Gemini AI model. The application uses LangGraph to orchestrate conversational flows and maintains user sessions to provide contextual responses throughout the planning process.
 
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
